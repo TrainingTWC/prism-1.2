@@ -9,10 +9,10 @@ import type { UserRole } from '@prism/auth';
 
 const spring = { type: 'spring' as const, bounce: 0, duration: 0.4 };
 
-function getRoleBadge(employeeInfo: EmployeeLookup | null): { role: UserRole; label: string; color: string } {
+function getRoleBadge(employeeInfo: EmployeeLookup | null, empId?: string | null): { role: UserRole; label: string; color: string } {
     if (!employeeInfo) return { role: 'store', label: 'Store Team', color: '#F59E0B' };
     const dbRoleName = employeeInfo.role?.name;
-    const role = departmentToRole(employeeInfo.department, dbRoleName);
+    const role = departmentToRole(employeeInfo.department, dbRoleName, employeeInfo.designation, empId ?? undefined);
     const config = ROLE_CONFIG[role];
     return { role, label: config.label, color: config.color };
 }
@@ -24,7 +24,7 @@ export function LoginScreen() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    const badge = getRoleBadge(employeeInfo);
+    const badge = getRoleBadge(employeeInfo, empId);
 
     // Auto-login employees: H541 or store-mapping designations
     const isAutoLogin = empId

@@ -9,6 +9,8 @@ import { ROLE_CONFIG, departmentToRole, isAutoLoginDesignation } from '@prism/au
 // ──────────────────────────────────────────
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 const SESSION_KEY = 'prism-session';
 const EMPID_KEY = 'prism-empid';
@@ -120,6 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         let cancelled = false;
 
         async function fetchEmployee() {
+            // Try API server first
             try {
                 const res = await fetch(`${API_URL}/api/employees?companyId=${COMPANY_ID}&active=true`);
                 if (!res.ok) throw new Error('API unavailable');
@@ -143,12 +146,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     }
                     setEmployeeFetchDone(true);
                 }
+                return;
             } catch {
-                // API not available — continue without employee info
-                if (!cancelled) {
-                    setEmployeeInfo(null);
-                    setEmployeeFetchDone(true);
+                // API server not available — try Supabase REST directly
+            }
+
+            // Fallback: query Supabase PostgREST directly
+            if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+                try {
+                    const url = `${SUPABASE_URL}/rest/v1/employee?emp_id=eq.${encodeURIComponent(empId!)}&company_id=eq.${COMPANY_ID}&select=id,emp_id,name,email,department,designation,phone,store:store_id(store_name,region),role:role_id(id,name)`;
+                    const res = await fetch(url, {
+                        headers: {
+                            'apikey': SUPABASE_ANON_KEY,
+                            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                        },
+                    });
+                    if (res.ok) {
+                        const rows = await res.json();
+                        if (!cancelled && rows.length > 0) {
+                            const r = rows[0];
+                            setEmployeeInfo({
+                                id: r.id,
+                                empId: r.emp_id,
+                                name: r.name,
+                                email: r.email,
+                                department: r.department,
+                                designation: r.designation,
+                                phone: r.phone,
+                                store: r.store ? { storeName: r.store.store_name, storeCode: '', region: { name: r.store.region } } : null,
+                                role: r.role ? { id: r.role.id, name: r.role.name } : null,
+                            });
+                            setEmployeeFetchDone(true);
+                            return;
+                        }
+                    }
+                } catch {
+                    // Supabase also unavailable
                 }
+            }
+
+            // Final fallback: minimal info so auto-login can still proceed
+            if (!cancelled) {
+                setEmployeeInfo({
+                    id: '',
+                    empId: empId!,
+                    name: empId!,
+                    email: `${empId!.toLowerCase()}@hbpl.local`,
+                    department: null,
+                    designation: null,
+                });
+                setEmployeeFetchDone(true);
             }
         }
 
