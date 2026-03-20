@@ -1,5 +1,13 @@
 export const APP_NAME = 'Prism Platform';
 
+/** basePath from next.config — used for static asset URLs */
+export const BASE_PATH = process.env.NODE_ENV === 'production' ? '/prism-1.2' : '';
+
+/** Resolve a public asset path, respecting basePath */
+export function assetPath(path: string): string {
+  return `${BASE_PATH}${path}`;
+}
+
 export const ROUTES = {
   HOME: '/',
   DASHBOARD: '/dashboard',

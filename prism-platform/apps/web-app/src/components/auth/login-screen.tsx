@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import type { EmployeeLookup } from '@/lib/auth-context';
 import { ROLE_CONFIG, departmentToRole, isAutoLoginDesignation } from '@prism/auth';
 import type { UserRole } from '@prism/auth';
+import { assetPath } from '@/lib/constants';
 
 const spring = { type: 'spring' as const, bounce: 0, duration: 0.4 };
 
@@ -56,7 +57,7 @@ export function LoginScreen() {
                     {/* Logo */}
                     <div className="flex flex-col items-center mb-8">
                         <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-5">
-                            <img src="/logo.png" alt="Prism" className="w-20 h-20 object-contain drop-shadow-lg" />
+                            <img src={assetPath('/logo.png')} alt="Prism" className="w-20 h-20 object-contain drop-shadow-lg" />
                         </div>
                         <h1 className="text-2xl font-black tracking-wider bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-400 bg-clip-text text-transparent">
                             PRISM

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { assetPath } from '@/lib/constants';
 
 interface SplashScreenProps {
     /** User's name to greet, or null if still loading */
@@ -90,7 +91,7 @@ export function SplashScreen({ userName, onComplete, holdMs = 1200 }: SplashScre
                                 transition={{ duration: 1.8, ease: 'easeOut', times: [0, 0.6, 1] }}
                             />
                             <div className="relative w-24 h-24 md:w-28 md:h-28 rounded-3xl flex items-center justify-center">
-                                <img src="/logo.png" alt="Prism" className="w-24 h-24 md:w-28 md:h-28 object-contain drop-shadow-2xl" />
+                                <img src={assetPath('/logo.png')} alt="Prism" className="w-24 h-24 md:w-28 md:h-28 object-contain drop-shadow-2xl" />
                             </div>
                         </motion.div>
 
@@ -168,7 +169,7 @@ export function SplashScreen({ userName, onComplete, holdMs = 1200 }: SplashScre
                     </div>
                     <div className="relative flex flex-col items-center">
                         <div className="relative w-24 h-24 md:w-28 md:h-28 rounded-3xl flex items-center justify-center">
-                            <img src="/logo.png" alt="Prism" className="w-24 h-24 md:w-28 md:h-28 object-contain drop-shadow-2xl" />
+                            <img src={assetPath('/logo.png')} alt="Prism" className="w-24 h-24 md:w-28 md:h-28 object-contain drop-shadow-2xl" />
                         </div>
                         <div className="flex items-center gap-[2px] mt-7">
                             {LETTERS.map((letter) => (

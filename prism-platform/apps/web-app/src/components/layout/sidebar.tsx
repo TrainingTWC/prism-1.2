@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@prism/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSidebar } from '@/lib/sidebar-context';
+import { assetPath } from '@/lib/constants';
 import { useAuth } from '@/lib/auth-context';
 import { moduleToDashboardSlug } from '@prism/auth';
 import type { AppPermission } from '@prism/auth';
@@ -130,7 +131,7 @@ export function Sidebar() {
             <div className="flex items-center px-5 py-5 overflow-hidden">
                 <div className="h-8 w-8 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0">
                     <img
-                        src="/logo.png"
+                        src={assetPath('/logo.png')}
                         alt="Logo"
                         className="h-full w-full object-contain"
                         onError={(e) => {

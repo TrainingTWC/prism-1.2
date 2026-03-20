@@ -8,6 +8,7 @@ import { useSidebar } from '@/lib/sidebar-context';
 import { useAuth } from '@/lib/auth-context';
 import { ROLE_CONFIG } from '@prism/auth';
 import { SIDEBAR_EXPANDED, SIDEBAR_COLLAPSED } from './sidebar';
+import { assetPath } from '@/lib/constants';
 import { GlobalSearch } from './global-search';
 
 const spring = { type: 'spring' as const, bounce: 0, duration: 0.4 };
@@ -33,7 +34,7 @@ export function Topbar() {
                     <div className="flex items-center gap-2.5">
                         <div className="h-7 w-7 rounded-md overflow-hidden flex items-center justify-center flex-shrink-0">
                             <img
-                                src="/logo.png"
+                                src={assetPath('/logo.png')}
                                 alt="Logo"
                                 className="h-full w-full object-contain"
                                 onError={(e) => {
