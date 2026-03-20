@@ -7,22 +7,22 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const ROUTE_TABLE_MAP: Record<string, { table: string; select?: string; orderBy?: string }> = {
   '/api/programs': {
     table: 'program',
-    select: '*,sections:program_section(id,title,order,weight),_count_submissions:program_submission(count)',
+    select: '*,sections:program_section(id,title,order,weight),submission_count:program_submission(count)',
     orderBy: 'updated_at.desc',
   },
   '/api/employees': {
     table: 'employee',
-    select: '*,store:store_id(store_name,region),role:role_id(id,name)',
+    select: '*,store:store_id(store_name,store_code,region:region_id(name)),role:role_id(id,name)',
     orderBy: 'name.asc',
   },
   '/api/stores': {
     table: 'store',
-    select: '*',
+    select: '*,region:region_id(id,name)',
     orderBy: 'store_name.asc',
   },
   '/api/submissions': {
     table: 'program_submission',
-    select: '*,program:program_id(id,name,type),store:store_id(store_name,region),employee:employee_id(name,emp_id)',
+    select: '*,program:program_id(id,name,type),store:store_id(store_name,store_code,region:region_id(name)),employee:employee_id(name,emp_id)',
     orderBy: 'created_at.desc',
   },
   '/api/tasks': {
@@ -134,14 +134,14 @@ async function supabaseGet<T>(endpoint: string): Promise<T | null> {
   const contentRange = res.headers.get('content-range');
   const total = contentRange ? parseInt(contentRange.split('/')[1] || '0') : data.length;
 
-  // Normalize _count from PostgREST aggregate [{count: N}] → { submissions: N }
+  // Normalize submission_count from PostgREST aggregate [{count: N}] → _count: { submissions: N }
   if (Array.isArray(data)) {
     for (const item of data) {
       if (item && typeof item === 'object') {
-        const countSub = item['countSubmissions'] as { count: number }[] | undefined;
+        const countSub = item['submissionCount'] as { count: number }[] | undefined;
         if (Array.isArray(countSub)) {
           item['_count'] = { submissions: countSub[0]?.count ?? 0 };
-          delete item['countSubmissions'];
+          delete item['submissionCount'];
         }
       }
     }
@@ -185,9 +185,15 @@ export async function apiClient<T>(
     config.body = JSON.stringify(body);
   }
 
-  // Try API server first
+  // Try API server first (with 3s timeout to fail fast on GitHub Pages)
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...config,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
     if (!response.ok) throw new Error(`API Error: ${response.status} ${response.statusText}`);
     const text = await response.text();
     if (!text) return undefined as T;
