@@ -1,0 +1,38 @@
+{
+  "name": "prism-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prism — Multi-tenant Operational Intelligence Platform",
+  "scripts": {
+    "dev:web": "turbo run dev --filter=@prism/web-app",
+    "dev:admin": "turbo run dev --filter=@prism/admin-panel",
+    "dev:api": "turbo run dev --filter=@prism/api-server",
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:seed": "tsx scripts/db-seed.ts",
+    "db:generate": "turbo run db:generate --filter=@prism/database",
+    "db:push": "turbo run db:push --filter=@prism/database",
+    "db:studio": "turbo run db:studio --filter=@prism/database",
+    "db:validate": "turbo run db:validate --filter=@prism/database",
+    "prisma:migrate:dev": "turbo run db:migrate:dev --filter=@prism/database",
+    "prisma:migrate:deploy": "turbo run db:migrate:deploy --filter=@prism/database",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.5.0",
+    "tsx": "^4.7.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0"
+  },
+  "packageManager": "pnpm@9.1.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,841 @@
+// ──────────────────────────────────────────────────────────────
+// Prism Platform — Production Prisma Schema
+// ──────────────────────────────────────────────────────────────
+//
+// Multi-tenant operational intelligence platform.
+// Supports: audits, assessments, competitions, surveys, inspections
+//
+// Key design decisions:
+//   - Every tenant-scoped table carries companyId for RLS
+//   - UUIDs as primary keys for distributed safety
+//   - JSONB for flexible config (conditional logic, options, scoring)
+//   - Soft-delete via isActive / archivedAt where appropriate
+//   - Analytics-optimised composite indexes
+// ──────────────────────────────────────────────────────────────
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "multiSchema"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  MULTI-TENANT: COMPANY
+// ════════════════════════════════════════════════════════════════
+
+model Company {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(255)
+  slug      String   @unique @db.VarChar(100)
+  logo      String?  @db.Text
+  domain    String?  @db.VarChar(255)
+  settings  Json     @default("{}")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  stores           Store[]
+  employees        Employee[]
+  programs         Program[]
+  tasks            Task[]
+  notifications    Notification[]
+  fileUploads      FileUpload[]
+  regions          Region[]
+  knowledgeEntries CompanyKnowledge[]
+  chatViolations   ChatViolation[]
+
+  @@map("company")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  AI: COMPANY KNOWLEDGE BASE
+// ════════════════════════════════════════════════════════════════
+
+model CompanyKnowledge {
+  id        String                 @id @default(uuid()) @db.Uuid
+  companyId String                 @map("company_id") @db.Uuid
+  category  CompanyKnowledgeCategory
+  title     String                 @db.VarChar(500)
+  content   String                 @db.Text
+  tags      String[]               @default([])
+  isActive  Boolean                @default(true) @map("is_active")
+  sortOrder Int                    @default(0) @map("sort_order")
+  createdBy String?                @map("created_by") @db.Uuid
+  createdAt DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime               @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([companyId, category])
+  @@index([companyId, isActive])
+  @@map("company_knowledge")
+}
+
+enum CompanyKnowledgeCategory {
+  SOP_PROCEDURE
+  SCORING_GRADING
+  COMPANY_POLICY
+  BRAND_STANDARD
+  TRAINING_MATERIAL
+  REGIONAL_GUIDELINE
+  PRODUCT_LAUNCH
+  GENERAL
+
+  @@map("company_knowledge_category")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  AI: CHAT VIOLATIONS LOG
+// ════════════════════════════════════════════════════════════════
+
+model ChatViolation {
+  id            String             @id @default(uuid()) @db.Uuid
+  companyId     String             @map("company_id") @db.Uuid
+  userId        String?            @map("user_id") @db.Uuid
+  userName      String             @map("user_name") @db.VarChar(255)
+  userRole      String             @map("user_role") @db.VarChar(100)
+  originalMessage String           @map("original_message") @db.Text
+  censoredMessage String           @map("censored_message") @db.Text
+  violationType ChatViolationType  @map("violation_type")
+  flaggedTerms  String[]           @default([]) @map("flagged_terms")
+  severity      ChatViolationSeverity @default(WARNING)
+  warningCount  Int                @default(1) @map("warning_count")
+  escalated     Boolean            @default(false)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([companyId, userId])
+  @@index([companyId, violationType])
+  @@index([createdAt])
+  @@map("chat_violation")
+}
+
+enum ChatViolationType {
+  PROFANITY
+  OFFENSIVE_LANGUAGE
+  COMPETITOR_MENTION
+  OFF_TOPIC
+  CONTROVERSIAL
+
+  @@map("chat_violation_type")
+}
+
+enum ChatViolationSeverity {
+  WARNING
+  SERIOUS
+  CRITICAL
+
+  @@map("chat_violation_severity")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  GEOGRAPHY: REGION
+// ════════════════════════════════════════════════════════════════
+
+model Region {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String   @db.VarChar(150)
+  code      String?  @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stores  Store[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("region")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  LOCATION: STORE
+// ════════════════════════════════════════════════════════════════
+
+model Store {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  regionId  String?  @map("region_id") @db.Uuid
+  storeName String   @map("store_name") @db.VarChar(255)
+  storeCode String?  @map("store_code") @db.VarChar(50)
+  city      String   @db.VarChar(100)
+  state     String?  @db.VarChar(100)
+  address     String?  @db.Text
+  latitude    Float?
+  longitude   Float?
+  amId              String?  @map("am_id") @db.VarChar(50)
+  amName            String?  @map("am_name") @db.VarChar(255)
+  hrbp1Id           String?  @map("hrbp_1_id") @db.VarChar(50)
+  hrbp1Name         String?  @map("hrbp_1_name") @db.VarChar(255)
+  hrbp2Id           String?  @map("hrbp_2_id") @db.VarChar(50)
+  hrbp2Name         String?  @map("hrbp_2_name") @db.VarChar(255)
+  hrbp3Id           String?  @map("hrbp_3_id") @db.VarChar(50)
+  hrbp3Name         String?  @map("hrbp_3_name") @db.VarChar(255)
+  trainer1Id        String?  @map("trainer_1_id") @db.VarChar(50)
+  trainer1Name      String?  @map("trainer_1_name") @db.VarChar(255)
+  trainer2Id        String?  @map("trainer_2_id") @db.VarChar(50)
+  trainer2Name      String?  @map("trainer_2_name") @db.VarChar(255)
+  trainer3Id        String?  @map("trainer_3_id") @db.VarChar(50)
+  trainer3Name      String?  @map("trainer_3_name") @db.VarChar(255)
+  regionalTrainerId   String?  @map("regional_trainer_id") @db.VarChar(50)
+  regionalTrainerName String?  @map("regional_trainer_name") @db.VarChar(255)
+  regionalHrId      String?  @map("regional_hr_id") @db.VarChar(50)
+  regionalHrName    String?  @map("regional_hr_name") @db.VarChar(255)
+  hrHeadId          String?  @map("hr_head_id") @db.VarChar(50)
+  hrHeadName        String?  @map("hr_head_name") @db.VarChar(255)
+  storeFormat       String?  @map("store_format") @db.VarChar(50)
+  menuType          String?  @map("menu_type") @db.VarChar(50)
+  priceGroup        String?  @map("price_group") @db.VarChar(50)
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  company     Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  region      Region?             @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  employees   Employee[]
+  submissions ProgramSubmission[]
+  tasks       Task[]
+  followUps   FollowUp[]
+
+  @@unique([companyId, storeCode])
+  @@index([companyId])
+  @@index([regionId])
+  @@index([companyId, regionId])
+  @@index([city])
+  @@map("store")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RBAC: ROLE & PERMISSION
+// ════════════════════════════════════════════════════════════════
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(50)
+  description String?  @db.Text
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  permissions RolePermission[]
+  employees   Employee[]
+
+  @@map("role")
+}
+
+model Permission {
+  id             String   @id @default(uuid()) @db.Uuid
+  permissionName String   @unique @map("permission_name") @db.VarChar(100)
+  description    String?  @db.Text
+  module         String?  @db.VarChar(50)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  roles RolePermission[]
+
+  @@index([module])
+  @@map("permission")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permission")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  PEOPLE: EMPLOYEE
+// ════════════════════════════════════════════════════════════════
+
+model Employee {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  empId        String    @map("emp_id") @db.VarChar(50)
+  name         String    @db.VarChar(255)
+  email        String    @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.Text
+  phone        String?   @db.VarChar(20)
+  avatar       String?   @db.Text
+  department   String?   @db.VarChar(100)
+  designation    String?   @db.VarChar(100)
+  dateOfJoining DateTime? @map("date_of_joining") @db.Date
+  location      String?   @db.VarChar(255)
+  category      String?   @db.VarChar(100)
+  storeId       String?   @map("store_id") @db.Uuid
+  managerId     String?   @map("manager_id") @db.Uuid
+  trainerId    String?   @map("trainer_id") @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  store   Store?    @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  manager Employee? @relation("ManagerRelation", fields: [managerId], references: [id], onDelete: SetNull)
+  trainer Employee? @relation("TrainerRelation", fields: [trainerId], references: [id], onDelete: SetNull)
+  role    Role      @relation(fields: [roleId], references: [id])
+
+  // Reverse relations
+  managedEmployees    Employee[]          @relation("ManagerRelation")
+  trainedEmployees    Employee[]          @relation("TrainerRelation")
+  submissions         ProgramSubmission[] @relation("SubmittedBy")
+  reviewedSubmissions ProgramSubmission[] @relation("ReviewedBy")
+  assignedTasks       Task[]              @relation("TaskAssignee")
+  createdTasks        Task[]              @relation("TaskCreator")
+  notifications       Notification[]
+  fileUploads         FileUpload[]
+  taskComments        TaskComment[]
+  assignedFollowUps   FollowUp[]          @relation("FollowUpAssignee")
+  createdFollowUps    FollowUp[]          @relation("FollowUpCreator")
+  verifiedFollowUps   FollowUp[]          @relation("FollowUpVerifier")
+  verifiedFollowUpItems FollowUpItem[]    @relation("FollowUpItemVerifier")
+
+  @@unique([companyId, empId])
+  @@unique([companyId, email])
+  @@index([companyId])
+  @@index([storeId])
+  @@index([managerId])
+  @@index([roleId])
+  @@index([department])
+  @@index([companyId, isActive])
+  @@map("employee")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  PROGRAM SYSTEM
+// ════════════════════════════════════════════════════════════════
+
+enum ProgramStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+
+  @@map("program_status")
+}
+
+enum ProgramType {
+  QA_AUDIT
+  TRAINING_ASSESSMENT
+  CAMPUS_HIRING
+  COMPLIANCE_INSPECTION
+  OPERATIONAL_SURVEY
+  COMPETITION_SCORING
+  CUSTOM
+
+  @@map("program_type")
+}
+
+model Program {
+  id          String        @id @default(uuid()) @db.Uuid
+  companyId   String        @map("company_id") @db.Uuid
+  name        String        @db.VarChar(255)
+  description String?       @db.Text
+  type        ProgramType   @default(CUSTOM)
+  department  String?       @db.VarChar(100)
+  status      ProgramStatus @default(DRAFT)
+  version     Int           @default(1)
+  parentId    String?       @map("parent_id") @db.Uuid
+
+  // Timer for timed assessments (seconds)
+  timerDuration Int? @map("timer_duration")
+
+  // Feature toggles
+  scoringEnabled     Boolean @default(true) @map("scoring_enabled")
+  offlineEnabled     Boolean @default(false) @map("offline_enabled")
+  imageUploadEnabled Boolean @default(true) @map("image_upload_enabled")
+  geoLocationEnabled Boolean @default(false) @map("geo_location_enabled")
+  signatureEnabled   Boolean @default(false) @map("signature_enabled")
+
+  // Scoring configuration
+  scoringConfig Json @default("{}") @map("scoring_config")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  company     Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent      Program?            @relation("ProgramVersions", fields: [parentId], references: [id])
+  versions    Program[]           @relation("ProgramVersions")
+  sections    ProgramSection[]
+  submissions ProgramSubmission[]
+  followUps   FollowUp[]
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([companyId, type])
+  @@index([companyId, department])
+  @@index([status])
+  @@map("program")
+}
+
+model ProgramSection {
+  id          String   @id @default(uuid()) @db.Uuid
+  programId   String   @map("program_id") @db.Uuid
+  title       String   @db.VarChar(255)
+  description String?  @db.Text
+  order       Int      @default(0)
+  weight      Float    @default(1.0)
+  isCritical  Boolean  @default(false) @map("is_critical")
+  maxScore    Float?   @map("max_score")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  program   Program           @relation(fields: [programId], references: [id], onDelete: Cascade)
+  questions ProgramQuestion[]
+
+  @@index([programId])
+  @@index([programId, order])
+  @@map("program_section")
+}
+
+// ────────────────────────────────────────────
+//  QUESTION TYPES
+// ────────────────────────────────────────────
+
+enum QuestionType {
+  TEXT
+  NUMBER
+  YES_NO
+  DROPDOWN
+  MULTIPLE_CHOICE
+  RATING_SCALE
+  IMAGE_UPLOAD
+  FILE_UPLOAD
+  SIGNATURE
+
+  @@map("question_type")
+}
+
+model ProgramQuestion {
+  id           String       @id @default(uuid()) @db.Uuid
+  sectionId    String       @map("section_id") @db.Uuid
+  questionType QuestionType @map("question_type")
+  text         String       @db.Text
+  description  String?      @db.Text
+  order        Int          @default(0)
+
+  // Scoring
+  weight         Float   @default(1.0)
+  negativeWeight Float?  @map("negative_weight")
+  correctAnswer  String? @map("correct_answer") @db.Text
+  scoringEnabled Boolean @default(true) @map("scoring_enabled")
+
+  // Validation
+  required  Boolean @default(false)
+  minValue  Float?  @map("min_value")
+  maxValue  Float?  @map("max_value")
+  minLength Int?    @map("min_length")
+  maxLength Int?    @map("max_length")
+
+  // Options (dropdowns, multiple choice, rating scale)
+  options     Json  @default("[]")
+  ratingScale Json? @map("rating_scale")
+
+  // Media controls
+  allowImages     Boolean @default(false) @map("allow_images")
+  allowAnnotation Boolean @default(false) @map("allow_annotation")
+  allowComments   Boolean @default(false) @map("allow_comments")
+
+  // Conditional logic (show/hide based on parent answer)
+  conditionalLogic Json? @map("conditional_logic")
+
+  // Default
+  defaultValue String? @map("default_value") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  section        ProgramSection    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  responses      ProgramResponse[]
+  followUpItems  FollowUpItem[]
+
+  @@index([sectionId])
+  @@index([sectionId, order])
+  @@index([questionType])
+  @@map("program_question")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SUBMISSION SYSTEM
+// ════════════════════════════════════════════════════════════════
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  SYNCED
+  REVIEWED
+  ARCHIVED
+
+  @@map("submission_status")
+}
+
+model ProgramSubmission {
+  id         String           @id @default(uuid()) @db.Uuid
+  programId  String           @map("program_id") @db.Uuid
+  employeeId String           @map("employee_id") @db.Uuid
+  storeId    String           @map("store_id") @db.Uuid
+  status     SubmissionStatus @default(DRAFT)
+
+  // Scoring
+  score      Float?
+  maxScore   Float? @map("max_score")
+  percentage Float?
+
+  // Location
+  geoLat Float? @map("geo_lat")
+  geoLng Float? @map("geo_lng")
+
+  // Timestamps
+  startedAt    DateTime? @map("started_at") @db.Timestamptz
+  submittedAt  DateTime? @map("submitted_at") @db.Timestamptz
+  syncedAt     DateTime? @map("synced_at") @db.Timestamptz
+  reviewedAt   DateTime? @map("reviewed_at") @db.Timestamptz
+  reviewedById String?   @map("reviewed_by_id") @db.Uuid
+
+  // Offline support
+  isOffline Boolean @default(false) @map("is_offline")
+  deviceId  String? @map("device_id") @db.VarChar(100)
+
+  // Section scores breakdown
+  sectionScores Json @default("[]") @map("section_scores")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  program    Program           @relation(fields: [programId], references: [id], onDelete: Cascade)
+  employee   Employee          @relation("SubmittedBy", fields: [employeeId], references: [id])
+  store      Store             @relation(fields: [storeId], references: [id])
+  reviewedBy Employee?         @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  responses  ProgramResponse[]
+  tasks      Task[]
+  followUps  FollowUp[]
+
+  // ── Analytics indexes ──
+  @@index([programId])
+  @@index([employeeId])
+  @@index([storeId])
+  @@index([status])
+  @@index([submittedAt])
+  @@index([programId, storeId])
+  @@index([programId, submittedAt])
+  @@index([storeId, submittedAt])
+  @@index([programId, storeId, submittedAt])
+  @@index([employeeId, submittedAt])
+  @@map("program_submission")
+}
+
+model ProgramResponse {
+  id           String @id @default(uuid()) @db.Uuid
+  submissionId String @map("submission_id") @db.Uuid
+  questionId   String @map("question_id") @db.Uuid
+
+  // Answer data — flexible for all question types
+  answer          String?  @db.Text
+  numericValue    Float?   @map("numeric_value")
+  booleanValue    Boolean? @map("boolean_value")
+  selectedOptions Json?    @map("selected_options")
+
+  // Media
+  imageUrl     String? @map("image_url") @db.Text
+  fileUrl      String? @map("file_url") @db.Text
+  signatureUrl String? @map("signature_url") @db.Text
+
+  // Annotations & comments
+  annotation Json?
+  comment    String? @db.Text
+
+  // Geolocation per-response
+  geoLat Float? @map("geo_lat")
+  geoLng Float? @map("geo_lng")
+
+  // Scoring
+  score    Float?
+  maxScore Float? @map("max_score")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  submission    ProgramSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  question      ProgramQuestion   @relation(fields: [questionId], references: [id])
+  followUpItems FollowUpItem[]
+
+  @@index([submissionId])
+  @@index([questionId])
+  @@index([submissionId, questionId])
+  @@map("program_response")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TASK SYSTEM
+// ════════════════════════════════════════════════════════════════
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+
+  @@map("task_status")
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@map("task_priority")
+}
+
+model Task {
+  id           String       @id @default(uuid()) @db.Uuid
+  companyId    String       @map("company_id") @db.Uuid
+  title        String       @db.VarChar(255)
+  description  String?      @db.Text
+  assignedToId String       @map("assigned_to_id") @db.Uuid
+  createdById  String       @map("created_by_id") @db.Uuid
+  submissionId String?      @map("submission_id") @db.Uuid
+  storeId      String?      @map("store_id") @db.Uuid
+  status       TaskStatus   @default(OPEN)
+  priority     TaskPriority @default(MEDIUM)
+  dueDate      DateTime?    @map("due_date") @db.Date
+  completedAt  DateTime?    @map("completed_at") @db.Timestamptz
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  company    Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignee   Employee           @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  creator    Employee           @relation("TaskCreator", fields: [createdById], references: [id])
+  submission ProgramSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  store      Store?             @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  comments   TaskComment[]
+
+  @@index([companyId])
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([storeId])
+  @@index([companyId, status])
+  @@index([companyId, assignedToId, status])
+  @@index([submissionId])
+  @@map("task")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  task   Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author Employee @relation(fields: [authorId], references: [id])
+
+  @@index([taskId])
+  @@map("task_comment")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  NOTIFICATION SYSTEM
+// ════════════════════════════════════════════════════════════════
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+
+  @@map("notification_channel")
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+
+  @@map("notification_status")
+}
+
+model Notification {
+  id        String              @id @default(uuid()) @db.Uuid
+  companyId String              @map("company_id") @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  type      String              @db.VarChar(50)
+  title     String?             @db.VarChar(255)
+  message   String              @db.Text
+  channel   NotificationChannel @default(IN_APP)
+  status    NotificationStatus  @default(PENDING)
+  metadata  Json                @default("{}")
+  readAt    DateTime?           @map("read_at") @db.Timestamptz
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    Employee @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([companyId])
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@map("notification")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  FOLLOW-UP SYSTEM
+// ════════════════════════════════════════════════════════════════
+
+enum FollowUpStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  VERIFIED
+  CLOSED
+
+  @@map("follow_up_status")
+}
+
+enum FollowUpItemStatus {
+  OPEN
+  STORE_RESPONDED
+  RCA_SUBMITTED
+  CAPA_SUBMITTED
+  RESOLVED
+  VERIFIED
+
+  @@map("follow_up_item_status")
+}
+
+model FollowUp {
+  id                   String         @id @default(uuid()) @db.Uuid
+  companyId            String         @map("company_id") @db.Uuid
+  originalSubmissionId String         @map("original_submission_id") @db.Uuid
+  programId            String         @map("program_id") @db.Uuid
+  storeId              String         @map("store_id") @db.Uuid
+  assignedToId         String         @map("assigned_to_id") @db.Uuid
+  createdById          String         @map("created_by_id") @db.Uuid
+  status               FollowUpStatus @default(OPEN)
+  title                String         @db.VarChar(255)
+  dueDate              DateTime?      @map("due_date") @db.Date
+  completedAt          DateTime?      @map("completed_at") @db.Timestamptz
+  verifiedAt           DateTime?      @map("verified_at") @db.Timestamptz
+  verifiedById         String?        @map("verified_by_id") @db.Uuid
+  notes                String?        @db.Text
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  originalSubmission ProgramSubmission @relation(fields: [originalSubmissionId], references: [id])
+  program            Program           @relation(fields: [programId], references: [id])
+  store              Store             @relation(fields: [storeId], references: [id])
+  assignedTo         Employee          @relation("FollowUpAssignee", fields: [assignedToId], references: [id])
+  createdBy          Employee          @relation("FollowUpCreator", fields: [createdById], references: [id])
+  verifiedBy         Employee?         @relation("FollowUpVerifier", fields: [verifiedById], references: [id])
+  items              FollowUpItem[]
+
+  @@index([companyId])
+  @@index([originalSubmissionId])
+  @@index([assignedToId])
+  @@index([storeId])
+  @@index([status])
+  @@index([companyId, status])
+  @@index([companyId, assignedToId, status])
+  @@map("follow_up")
+}
+
+model FollowUpItem {
+  id                 String             @id @default(uuid()) @db.Uuid
+  followUpId         String             @map("follow_up_id") @db.Uuid
+  originalQuestionId String             @map("original_question_id") @db.Uuid
+  originalResponseId String             @map("original_response_id") @db.Uuid
+
+  // Issue details
+  issueDescription String  @map("issue_description") @db.Text
+  originalAnswer   String? @map("original_answer") @db.Text
+
+  // Store response
+  storeResponse String? @map("store_response") @db.Text
+
+  // RCA — Root Cause Analysis
+  rootCauseAnalysis String? @map("root_cause_analysis") @db.Text
+
+  // CAPA — Corrective And Preventive Action
+  correctiveAction String? @map("corrective_action") @db.Text
+  preventiveAction String? @map("preventive_action") @db.Text
+
+  // Resolution
+  status          FollowUpItemStatus @default(OPEN)
+  resolutionNotes String?            @map("resolution_notes") @db.Text
+  resolvedAt      DateTime?          @map("resolved_at") @db.Timestamptz
+
+  // Verification
+  verificationNotes String?   @map("verification_notes") @db.Text
+  verifiedAt        DateTime? @map("verified_at") @db.Timestamptz
+  verifiedById      String?   @map("verified_by_id") @db.Uuid
+
+  // Evidence attachments
+  evidenceUrls Json @default("[]") @map("evidence_urls")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  followUp         FollowUp        @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  originalQuestion ProgramQuestion @relation(fields: [originalQuestionId], references: [id])
+  originalResponse ProgramResponse @relation(fields: [originalResponseId], references: [id])
+  verifiedBy       Employee?       @relation("FollowUpItemVerifier", fields: [verifiedById], references: [id])
+
+  @@index([followUpId])
+  @@index([status])
+  @@map("follow_up_item")
+}
+
+// ════════════════════════════════════════════════════════════════
+//  FILE UPLOADS
+// ════════════════════════════════════════════════════════════════
+
+enum StorageBucket {
+  AUDIT_EVIDENCE
+  ATTACHMENTS
+  DOCUMENTS
+  SIGNATURES
+  AVATARS
+
+  @@map("storage_bucket")
+}
+
+model FileUpload {
+  id         String        @id @default(uuid()) @db.Uuid
+  companyId  String        @map("company_id") @db.Uuid
+  uploadedBy String        @map("uploaded_by") @db.Uuid
+  bucket     StorageBucket
+  fileName   String        @map("file_name") @db.VarChar(255)
+  filePath   String        @map("file_path") @db.Text
+  publicUrl  String        @map("public_url") @db.Text
+  mimeType   String        @map("mime_type") @db.VarChar(100)
+  sizeBytes  Int           @map("size_bytes")
+  metadata   Json          @default("{}")
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  uploader Employee @relation(fields: [uploadedBy], references: [id])
+
+  @@index([companyId])
+  @@index([uploadedBy])
+  @@index([bucket])
+  @@index([companyId, bucket])
+  @@map("file_upload")
+}
